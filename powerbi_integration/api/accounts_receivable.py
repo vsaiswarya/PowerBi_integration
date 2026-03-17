@@ -15,7 +15,6 @@ def accounts_receivable_powerbi():
     }
 
     try:
-        # Correct method (DO NOT use execute)
         report = frappe.desk.query_report.run(
             report_name="Accounts Receivable",
             filters=filters,
@@ -29,7 +28,7 @@ def accounts_receivable_powerbi():
 
         for row in data:
 
-            # Handle dict rows (MOST IMPORTANT FIX)
+            # Handle dict rows
             if isinstance(row, dict):
                 row_dict = row
             else:
@@ -39,25 +38,31 @@ def accounts_receivable_powerbi():
                     fieldname = fieldname.replace(" ", "_").lower()
                     row_dict[fieldname] = value
 
-            # Skip header / total rows
+            # Skip unwanted rows (headers / totals)
             if not row_dict.get("voucher_no"):
                 continue
 
             final_data.append({
-                "date": row_dict.get("posting_date"),
-                "age_days": row_dict.get("age") or row_dict.get("ageing_days"),
-                "reference": f"{row_dict.get('voucher_type')} {row_dict.get('voucher_no')}",
-                "remarks": row_dict.get("customer_name") or row_dict.get("party"),
-                "invoiced_amount": row_dict.get("invoiced"),
-                "paid_amount": row_dict.get("paid"),
+                "posting_date": row_dict.get("posting_date"),
+                "due_date": row_dict.get("due_date"),
+                "age": row_dict.get("age") or row_dict.get("ageing_days"),
+                "voucher_type": row_dict.get("voucher_type"),
+                "voucher_no": row_dict.get("voucher_no"),
+                "customer": row_dict.get("customer_name") or row_dict.get("party"),
+                "remarks": row_dict.get("remarks"),
+                "invoiced": row_dict.get("invoiced"),
+                "paid": row_dict.get("paid"),
                 "credit_note": row_dict.get("credit_note"),
-                "outstanding_amount": row_dict.get("outstanding"),
+                "outstanding": row_dict.get("outstanding"),
             })
 
-        # Clean JSON response (important for Power BI)
-        frappe.response["type"] = "json"
-        frappe.response["result"] = final_data
+        # CRITICAL FIX
+        frappe.local.response.clear()
+        frappe.local.response.update({
+            "type": "json",
+            "data": final_data
+        })
 
     except Exception as e:
-        frappe.log_error(frappe.get_traceback(), "AR Power BI Error")
+        frappe.log_error(frappe.get_traceback(), "Power BI AR Error")
         frappe.throw(str(e))
