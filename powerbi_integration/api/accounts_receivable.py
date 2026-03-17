@@ -3,6 +3,10 @@ from frappe.utils import nowdate
 
 @frappe.whitelist(allow_guest=True)
 def accounts_receivable_powerbi():
+    """
+    Returns Accounts Receivable report EXACTLY like ERPNext UI
+    formatted for Power BI
+    """
 
     filters = {
         "company": frappe.defaults.get_user_default("Company"),
@@ -15,6 +19,7 @@ def accounts_receivable_powerbi():
     }
 
     try:
+        # Run ERPNext report (same as UI)
         report = frappe.desk.query_report.run(
             report_name="Accounts Receivable",
             filters=filters,
@@ -27,18 +32,26 @@ def accounts_receivable_powerbi():
         final_data = []
 
         for row in data:
-            # Convert list → dict using report columns
-            row_dict = {}
 
-            for col, value in zip(columns, row):
-                fieldname = col.get("fieldname") or col.get("label")
-                fieldname = fieldname.replace(" ", "_").lower()
-                row_dict[fieldname] = value
+            # Handle BOTH dict and list formats
+            if isinstance(row, dict):
+                row_dict = row
 
-            # Keep ONLY fields matching your report screenshot
+            else:
+                row_dict = {}
+                for col, value in zip(columns, row):
+                    fieldname = col.get("fieldname") or col.get("label")
+                    fieldname = fieldname.replace(" ", "_").lower()
+                    row_dict[fieldname] = value
+
+            # Skip unwanted rows (like totals / empty rows)
+            if not row_dict.get("voucher_no"):
+                continue
+
+            # Format EXACT like your report
             formatted_row = {
                 "date": row_dict.get("posting_date"),
-                "age_days": row_dict.get("age"),
+                "age_days": row_dict.get("age") or row_dict.get("ageing_days"),
                 "reference": f"{row_dict.get('voucher_type')} {row_dict.get('voucher_no')}",
                 "remarks": row_dict.get("customer_name") or row_dict.get("party"),
                 "invoiced_amount": row_dict.get("invoiced"),
@@ -49,10 +62,10 @@ def accounts_receivable_powerbi():
 
             final_data.append(formatted_row)
 
-        # Return clean JSON for Power BI
+        # IMPORTANT: Return clean JSON (NO "message" wrapper issue)
         frappe.response["type"] = "json"
         frappe.response["result"] = final_data
 
     except Exception as e:
-        frappe.log_error(frappe.get_traceback(), "Power BI AR Exact Report Error")
-        frappe.throw(str(e))
+        frappe.log_error(frappe.get_traceback(), "Power BI AR API Error")
+        frappe.throw("Error fetching Accounts Receivable data: " + str(e))
