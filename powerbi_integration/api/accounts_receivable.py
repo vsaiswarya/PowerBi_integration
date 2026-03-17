@@ -1,61 +1,58 @@
 import frappe
 from frappe.utils import nowdate
-from erpnext.accounts.report.accounts_receivable.accounts_receivable import execute
 
 @frappe.whitelist(allow_guest=True)
 def accounts_receivable_powerbi():
-    """
-    Custom Accounts Receivable API for Power BI
-    Structured based on AR Ageing report format.
-    """
 
     filters = {
         "company": frappe.defaults.get_user_default("Company"),
         "report_date": nowdate(),
         "ageing_based_on": "Due Date",
+        "range1": 30,
+        "range2": 60,
+        "range3": 90,
+        "range4": 120,
     }
 
     try:
-        columns, data = execute(filters)
+        report = frappe.desk.query_report.run(
+            report_name="Accounts Receivable",
+            filters=filters,
+            user=frappe.session.user
+        )
+
+        columns = report.get("columns", [])
+        data = report.get("result", [])
 
         final_data = []
 
         for row in data:
-            # Convert row to dict
-            if isinstance(row, (list, tuple)):
-                row_dict = {col.get("fieldname"): val for col, val in zip(columns, row)}
-            elif isinstance(row, dict):
-                row_dict = row
-            else:
-                continue
+            # Convert list → dict using report columns
+            row_dict = {}
 
-            # Transform into clean structure for Power BI
+            for col, value in zip(columns, row):
+                fieldname = col.get("fieldname") or col.get("label")
+                fieldname = fieldname.replace(" ", "_").lower()
+                row_dict[fieldname] = value
+
+            # Keep ONLY fields matching your report screenshot
             formatted_row = {
                 "date": row_dict.get("posting_date"),
-                "due_date": row_dict.get("due_date"),
-                "age_days": row_dict.get("age") or row_dict.get("ageing_days"),
-
-                "reference_type": row_dict.get("voucher_type"),
-                "reference_name": row_dict.get("voucher_no"),
-
-                "customer": row_dict.get("party"),
-                "remarks": row_dict.get("remarks") or row_dict.get("customer_name"),
-
-                "invoiced_amount": row_dict.get("invoiced") or row_dict.get("invoice_amount"),
-                "paid_amount": row_dict.get("paid_amount"),
+                "age_days": row_dict.get("age"),
+                "reference": f"{row_dict.get('voucher_type')} {row_dict.get('voucher_no')}",
+                "remarks": row_dict.get("customer_name") or row_dict.get("party"),
+                "invoiced_amount": row_dict.get("invoiced"),
+                "paid_amount": row_dict.get("paid"),
                 "credit_note": row_dict.get("credit_note"),
-
-                "outstanding_amount": row_dict.get("outstanding") or row_dict.get("outstanding_amount"),
+                "outstanding_amount": row_dict.get("outstanding"),
             }
 
             final_data.append(formatted_row)
 
-        return {
-            "status": "success",
-            "report_date": filters["report_date"],
-            "data": final_data
-        }
+        # Return clean JSON for Power BI
+        frappe.response["type"] = "json"
+        frappe.response["result"] = final_data
 
     except Exception as e:
-        frappe.log_error(frappe.get_traceback(), "Power BI AR API Error")
-        return {"status": "error", "message": str(e)}
+        frappe.log_error(frappe.get_traceback(), "Power BI AR Exact Report Error")
+        frappe.throw(str(e))
