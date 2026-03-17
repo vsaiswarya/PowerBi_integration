@@ -3,10 +3,6 @@ from frappe.utils import nowdate
 
 @frappe.whitelist(allow_guest=True)
 def accounts_receivable_powerbi():
-    """
-    Returns Accounts Receivable report EXACTLY like ERPNext UI
-    formatted for Power BI
-    """
 
     filters = {
         "company": frappe.defaults.get_user_default("Company"),
@@ -19,7 +15,7 @@ def accounts_receivable_powerbi():
     }
 
     try:
-        # Run ERPNext report (same as UI)
+        # Correct method (DO NOT use execute)
         report = frappe.desk.query_report.run(
             report_name="Accounts Receivable",
             filters=filters,
@@ -33,10 +29,9 @@ def accounts_receivable_powerbi():
 
         for row in data:
 
-            # Handle BOTH dict and list formats
+            # Handle dict rows (MOST IMPORTANT FIX)
             if isinstance(row, dict):
                 row_dict = row
-
             else:
                 row_dict = {}
                 for col, value in zip(columns, row):
@@ -44,12 +39,11 @@ def accounts_receivable_powerbi():
                     fieldname = fieldname.replace(" ", "_").lower()
                     row_dict[fieldname] = value
 
-            # Skip unwanted rows (like totals / empty rows)
+            # Skip header / total rows
             if not row_dict.get("voucher_no"):
                 continue
 
-            # Format EXACT like your report
-            formatted_row = {
+            final_data.append({
                 "date": row_dict.get("posting_date"),
                 "age_days": row_dict.get("age") or row_dict.get("ageing_days"),
                 "reference": f"{row_dict.get('voucher_type')} {row_dict.get('voucher_no')}",
@@ -58,14 +52,12 @@ def accounts_receivable_powerbi():
                 "paid_amount": row_dict.get("paid"),
                 "credit_note": row_dict.get("credit_note"),
                 "outstanding_amount": row_dict.get("outstanding"),
-            }
+            })
 
-            final_data.append(formatted_row)
-
-        # IMPORTANT: Return clean JSON (NO "message" wrapper issue)
+        # Clean JSON response (important for Power BI)
         frappe.response["type"] = "json"
         frappe.response["result"] = final_data
 
     except Exception as e:
-        frappe.log_error(frappe.get_traceback(), "Power BI AR API Error")
-        frappe.throw("Error fetching Accounts Receivable data: " + str(e))
+        frappe.log_error(frappe.get_traceback(), "AR Power BI Error")
+        frappe.throw(str(e))
