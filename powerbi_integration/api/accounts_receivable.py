@@ -1,5 +1,6 @@
 import frappe
 from frappe.utils import nowdate
+from frappe.desk.query_report import run 
 
 @frappe.whitelist(allow_guest=True)
 def accounts_receivable_powerbi():
@@ -15,7 +16,8 @@ def accounts_receivable_powerbi():
     }
 
     try:
-        report = frappe.desk.query_report.run(
+        # Use correct run function
+        report = run(
             report_name="Accounts Receivable",
             filters=filters,
             user=frappe.session.user
@@ -31,6 +33,7 @@ def accounts_receivable_powerbi():
             # Handle dict rows
             if isinstance(row, dict):
                 row_dict = row
+
             else:
                 row_dict = {}
                 for col, value in zip(columns, row):
@@ -38,7 +41,7 @@ def accounts_receivable_powerbi():
                     fieldname = fieldname.replace(" ", "_").lower()
                     row_dict[fieldname] = value
 
-            # Skip unwanted rows (headers / totals)
+            # Skip header / summary rows (CRITICAL FIX)
             if not row_dict.get("voucher_no"):
                 continue
 
@@ -56,12 +59,8 @@ def accounts_receivable_powerbi():
                 "outstanding": row_dict.get("outstanding"),
             })
 
-        # CRITICAL FIX
-        frappe.local.response.clear()
-        frappe.local.response.update({
-            "type": "json",
-            "data": final_data
-        })
+        # Return clean response
+        return final_data
 
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Power BI AR Error")
